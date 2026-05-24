@@ -45,7 +45,7 @@ def get_hotel_especifico(id_hotel: int):
     return hotel or {}
 
 @app.get('/resenas_cliente/{documento_cliente}')
-def get_resenas_cliente(documento_cliente: str):
+def get_resenas_cliente(documento_cliente: int):
 
     resenas = list(
         db.resenas.find(
@@ -174,7 +174,7 @@ def actualizar_todos_los_hoteles():
     print("Todos los hoteles fueron actualizados correctamente.")
 
 
-@app.get("/evolucion_hotel")
+@app.get('/evolucion_hotel/{id_hotel}')
 def get_evolucion_hotel(nombre_hotel: str, anio: int):
 
     resenas_hotel = db.resenas.find({
@@ -216,7 +216,7 @@ def get_evolucion_hotel(nombre_hotel: str, anio: int):
 
     return evolucion
 
-@app.get("/comparacion_ciudad")
+@app.get('/comparacion_ciudad/{ciudad}')
 def comparacion_ciudad(ciudad: str):
 
     hoteles_ciudad = list(
