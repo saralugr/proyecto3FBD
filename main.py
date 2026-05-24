@@ -24,7 +24,6 @@ db = client["ISIS2304C11202610"]
 def inicio():
     return {"estado": "API funcionando correctamente"}
 
-
 @app.get('/resenas')
 def get_resenas():
     resenas = list(db.resenas.find({}, {"_id": 0}))
@@ -50,11 +49,112 @@ def get_top_10():
     top10 = list(db.hoteles.find({}.sort({"calificacion_proimedio": -1}))).limit(10)
     return top10
 
-    
+@app.post('hoteles/anadir_hotel')
+def anadir_hotel(datos:dict):
+    db.hoteles.insert_one(datos)
+
+def actualizar_hotel(id_hotel: int):
+
+    pipeline = [
+        {
+            "$match": {
+                "id_hotel": id_hotel
+            }
+        },
+
+        {
+            "$group": {
+                "_id": "$id_hotel",
+
+                "promedio": {
+                    "$avg": "$calificacion"
+                },
+
+                "cantidad": {
+                    "$sum": 1
+                }
+            }
+        }
+    ]
+
+    resultado = db.resenas.aggregate(pipeline).to_list(1)
+
+    if resultado:
+
+        promedio = round(resultado[0]["promedio"], 2)
+        cantidad = resultado[0]["cantidad"]
+
+        db.hoteles.update_one(
+            {"id_hotel": id_hotel},
+
+            {
+                "$set": {
+                    "calificacion_promedio": promedio,
+                    "cantidad_resenas": cantidad
+                }
+            }
+        )
 
 
+@app.post('resenas/anadir')
+def agregar_resena(datos:dict):
+    datos["fecha_registro"] = datetime.now.isoformat()
+    db.resenas.insert_one(datos)
+    actualizar_hotel(datos["id_hotel"])
 
 
+def actualizar_todos_los_hoteles():
+
+    hoteles = list(db.hoteles.find({}))
+
+    for hotel in hoteles:
+
+        id_hotel = hotel["id_hotel"]
+
+        resenas = list(
+            db.resenas.find(
+                {"id_hotel": id_hotel}
+            )
+        )
+
+        cantidad = len(resenas)
+
+        if cantidad == 0:
+
+            db.hoteles.update_one(
+                {"id_hotel": id_hotel},
+                {
+                    "$set": {
+                        "calificacion_promedio": 0,
+                        "cantidad_resenas": 0
+                    }
+                }
+            )
+
+            continue
+
+        suma = 0
+
+        for r in resenas:
+            suma += r["calificacion"]
+
+        promedio = round(suma / cantidad, 2)
+
+        db.hoteles.update_one(
+            {"id_hotel": id_hotel},
+            {
+                "$set": {
+                    "calificacion_promedio": promedio,
+                    "cantidad_resenas": cantidad
+                }
+            }
+        )
+
+    print("Todos los hoteles fueron actualizados correctamente.")
+
+
+if __name__ == "__main__":
+    actualizar_todos_los_hoteles()
 
 
 
