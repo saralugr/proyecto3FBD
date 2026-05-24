@@ -44,6 +44,16 @@ def get_hotel_especifico(id_hotel: int):
 
     return hotel or {}
 
+@app.get('/hotel_por_nombre/{nombre_hotel}')
+def hotel_por_nombre(nombre_hotel: str):
+
+    hotel = db.hoteles.find_one(
+        {"nombre_hotel": nombre_hotel},
+        {"_id": 0}
+    )
+
+    return hotel or {}
+
 @app.get('/resenas_cliente/{documento_cliente}')
 def get_resenas_cliente(documento_cliente: int):
 
@@ -61,14 +71,70 @@ def get_resenas_cliente(documento_cliente: int):
     return resenas
 
 @app.get('/top_hoteles')
-def top_hoteles():
+def top_hoteles(fecha_inicio: str, fecha_final: str):
 
-    hoteles = list(db.hoteles.find({},{"_id": 0, "nombre_hotel": 1, "calificacion_promedio": 1})
-        .sort("calificacion_promedio", -1)
-        .limit(10)
+    fecha_inicio = datetime.strptime(
+        fecha_inicio,
+        "%Y-%m-%d"
     )
 
-    return hoteles
+    fecha_final = datetime.strptime(
+        fecha_final,
+        "%Y-%m-%d"
+    )
+
+    resenas = list(
+        db.resenas.find({
+            "fecha": {
+                "$gte": fecha_inicio,
+                "$lte": fecha_final
+            }
+        })
+    )
+
+    hoteles = {}
+
+    for r in resenas:
+
+        id_hotel = r["id_hotel"]
+        nombre_hotel = r["nombre_hotel"]
+        calificacion = r["calificacion"]
+
+        if id_hotel not in hoteles:
+
+            hoteles[id_hotel] = {
+                "nombre_hotel": nombre_hotel,
+                "suma": 0,
+                "cantidad": 0
+            }
+
+        hoteles[id_hotel]["suma"] += calificacion
+        hoteles[id_hotel]["cantidad"] += 1
+
+    resultado = []
+
+    for id_hotel in hoteles:
+
+        promedio = round(
+            hoteles[id_hotel]["suma"] /
+            hoteles[id_hotel]["cantidad"],
+            2
+        )
+
+        resultado.append({
+            "id_hotel": id_hotel,
+            "nombre_hotel":
+                hoteles[id_hotel]["nombre_hotel"],
+            "calificacion_promedio": promedio
+        })
+
+    resultado.sort(
+        key=lambda x: x["calificacion_promedio"],
+        reverse=True
+    )
+
+    return resultado[:10]
+
 
 @app.post('hoteles/anadir_hotel')
 def anadir_hotel(datos:dict):
