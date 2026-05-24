@@ -174,20 +174,22 @@ def actualizar_todos_los_hoteles():
     print("Todos los hoteles fueron actualizados correctamente.")
 
 
-@app.get('/evolucion_hotel/{id_hotel}')
-def get_evolucion_hotel(nombre_hotel: str, anio: int):
+@app.get('/evolucion_hotel')
+def get_evolucion_hotel(id_hotel: int, anio: int):
 
     resenas_hotel = db.resenas.find({
-        "nombre_hotel": nombre_hotel
+        "id_hotel": id_hotel
     })
 
     suma_mes = {}
     cantidad_mes = {}
 
     for r in resenas_hotel:
+
         fecha = r["fecha"]
 
         if fecha.year == anio:
+
             mes = fecha.month
 
             if mes not in suma_mes:
@@ -200,7 +202,9 @@ def get_evolucion_hotel(nombre_hotel: str, anio: int):
     evolucion = []
 
     for mes in range(1, 13):
+
         if mes in cantidad_mes:
+
             promedio = round(
                 suma_mes[mes] / cantidad_mes[mes],
                 2
