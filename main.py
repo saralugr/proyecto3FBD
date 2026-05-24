@@ -37,12 +37,12 @@ def get_hoteles():
 @app.get('/hoteles/{nombre_hotel}')
 def get_hotel_especifico(nombre_hotel: str):
     hotel = list(db.hoteles.find_one({"nombre_hotel": nombre_hotel}, {"_id" : 0}))
-    return hotel
+    return hotel or {}
 
 @app.get('/resenas/{nombre_cliente}')
 def get_resenas_especifico(nombre_cliente: str):
     resenas = list(db.resenas.find({"nombre_cliente": nombre_cliente}, {"_id" : 0}))
-    return resenas
+    return resenas or {}
 
 @app.get('/top_hoteles')
 def top_hoteles():
@@ -156,6 +156,57 @@ def actualizar_todos_los_hoteles():
         )
 
     print("Todos los hoteles fueron actualizados correctamente.")
+
+
+@app.get("/evolucion_hotel")
+def get_evolucion_hotel(nombre_hotel: str, anio: int):
+
+    resenas_hotel = db.resenas.find({
+        "nombre_hotel": nombre_hotel
+    })
+
+    suma_mes = {}
+    cantidad_mes = {}
+
+    for r in resenas_hotel:
+        fecha = r["fecha"]
+
+        if fecha.year == anio:
+            mes = fecha.month
+
+            if mes not in suma_mes:
+                suma_mes[mes] = 0
+                cantidad_mes[mes] = 0
+
+            suma_mes[mes] += r["calificacion"]
+            cantidad_mes[mes] += 1
+
+    evolucion = []
+
+    for mes in range(1, 13):
+        if mes in cantidad_mes:
+            promedio = round(
+                suma_mes[mes] / cantidad_mes[mes],
+                2
+            )
+
+        else:
+            promedio = 0
+
+        evolucion.append({
+            "mes": mes,
+            "calificacion_promedio": promedio
+        })
+
+    return evolucion
+
+
+
+
+
+
+    
+    
 
 
 
