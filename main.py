@@ -200,6 +200,99 @@ def get_evolucion_hotel(nombre_hotel: str, anio: int):
 
     return evolucion
 
+@app.get("/comparacion_ciudad")
+def comparacion_ciudad(ciudad: str):
+
+    hoteles_ciudad = list(
+        db.hoteles.find(
+            {"ciudad": ciudad},
+            {
+                "_id": 0,
+                "id_hotel": 1,
+                "nombre_hotel": 1
+            }
+        )
+    )
+
+    resultado = []
+
+    suma_ciudad = 0
+    cantidad_hoteles = 0
+
+    for hotel in hoteles_ciudad:
+
+        id_hotel = hotel["id_hotel"]
+
+        resenas = list(
+            db.resenas.find(
+                {"id_hotel": id_hotel}
+            )
+        )
+
+        total = len(resenas)
+
+        if total == 0:
+            promedio = 0
+            porcentaje_respondidas = 0
+            porcentaje_destacadas = 0
+
+        else:
+
+            suma = 0
+            respondidas = 0
+            destacadas = 0
+
+            for r in resenas:
+
+                suma += r["calificacion"]
+
+                if r.get("respondida") == True:
+                    respondidas += 1
+
+                if r["destacada"] == True:
+                    destacadas += 1
+
+            promedio = round(suma / total, 2)
+
+            porcentaje_respondidas = round(
+                respondidas * 100 / total,
+                2
+            )
+
+            porcentaje_destacadas = round(
+                destacadas * 100 / total,
+                2
+            )
+
+        resultado.append({
+            "hotel": hotel["nombre_hotel"],
+            "calificacion_promedio": promedio,
+            "total_resenas": total,
+            "porcentaje_respondidas": porcentaje_respondidas,
+            "porcentaje_destacadas": porcentaje_destacadas
+        })
+
+        suma_ciudad += promedio
+        cantidad_hoteles += 1
+
+    promedio_ciudad = round(
+        suma_ciudad / cantidad_hoteles,
+        2
+    )
+
+    for r in resultado:
+
+        r["debajo_promedio_ciudad"] = (
+            r["calificacion_promedio"] < promedio_ciudad
+        )
+
+    return {
+        "promedio_ciudad": promedio_ciudad,
+        "hoteles": resultado
+    }
+
+
+
 
 
 
