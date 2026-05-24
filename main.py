@@ -36,13 +36,29 @@ def get_hoteles():
 
 @app.get('/hoteles/{id_hotel}')
 def get_hotel_especifico(id_hotel: int):
-    hotel = list(db.hoteles.find_one({"id_hotel": id_hotel}, {"_id" : 0}))
+
+    hotel = db.hoteles.find_one(
+        {"id_hotel": id_hotel},
+        {"_id": 0}
+    )
+
     return hotel or {}
 
-@app.get('/resenas/{nombre_cliente}')
-def get_resenas_especifico(nombre_cliente: str):
-    resenas = list(db.resenas.find({"nombre_cliente": nombre_cliente}, {"_id" : 0}))
-    return resenas or {}
+@app.get('/resenas_cliente/{documento_cliente}')
+def get_resenas_cliente(documento_cliente: str):
+
+    resenas = list(
+        db.resenas.find(
+            {
+                "cliente.documento_cliente": documento_cliente
+            },
+            {
+                "_id": 0
+            }
+        )
+    )
+
+    return resenas
 
 @app.get('/top_hoteles')
 def top_hoteles():
