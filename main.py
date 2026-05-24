@@ -44,10 +44,23 @@ def get_resenas_especifico(nombre_cliente: str):
     resenas = list(db.resenas.find({"nombre_cliente": nombre_cliente}, {"_id" : 0}))
     return resenas
 
-@app.get('hoteles/top10')
-def get_top_10():
-    top10 = list(db.hoteles.find({}.sort({"calificacion_proimedio": -1}))).limit(10)
-    return top10
+@app.get("/top_hoteles")
+def top_hoteles():
+
+    hoteles = list(
+        db.hoteles.find(
+            {},
+            {
+                "_id": 0,
+                "nombre_hotel": 1,
+                "calificacion_promedio": 1
+            }
+        )
+        .sort("calificacion_promedio", -1)
+        .limit(10)
+    )
+
+    return hoteles
 
 @app.post('hoteles/anadir_hotel')
 def anadir_hotel(datos:dict):
