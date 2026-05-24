@@ -158,8 +158,6 @@ def actualizar_todos_los_hoteles():
     print("Todos los hoteles fueron actualizados correctamente.")
 
 
-if __name__ == "__main__":
-    actualizar_todos_los_hoteles()
 
 
 
