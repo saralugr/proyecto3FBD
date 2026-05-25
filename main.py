@@ -3,6 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from datetime import datetime
 import os
+from fastapi import HTTPException
+from fastapi import FastAPI, Query 
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI()
 
@@ -54,21 +58,6 @@ def hotel_por_nombre(nombre_hotel: str):
 
     return hotel or {}
 
-@app.get('/resenas_cliente/{documento_cliente}')
-def get_resenas_cliente(documento_cliente: int):
-
-    resenas = list(
-        db.resenas.find(
-            {
-                "cliente.documento_cliente": documento_cliente
-            },
-            {
-                "_id": 0
-            }
-        )
-    )
-
-    return resenas
 
 @app.get('/top_hoteles')
 def top_hoteles(fecha_inicio: str, fecha_final: str):
@@ -378,6 +367,86 @@ def comparacion_ciudad(ciudad: str):
     }
 
 
+@app.post("/resenas/crear")
+def crear_resena(datos: dict):
+    if not all([datos.get("id_reserva"), datos.get("documento_cliente"), datos.get("id_hotel"), datos.get("calificacion"), datos.get("texto")]):
+        raise HTTPException(status_code=400, detail="Faltan campos obligatorios")
+    if datos.get("calificacion") < 1 or datos.get("calificacion") > 5:
+        raise HTTPException(status_code=400, detail="Calificacion debe ser entre 1 y 5")
+    if not isinstance(datos.get("texto"), str) or len(datos.get("texto").strip()) == 0:
+        raise HTTPException(status_code=400, detail="El texto no puede estar vacio")
+    if db.resenas.find_one({"id_reserva": datos.get("id_reserva"), "cliente.documento_cliente": datos.get("documento_cliente")}):
+        raise HTTPException(status_code=409, detail="Ya existe una resena para esta reserva")
+    ultima = db.resenas.find_one({}, sort=[("id_resena", -1)])
+    db.resenas.insert_one({
+        "id_resena": (ultima["id_resena"] + 1) if ultima else 1,
+        "id_hotel": datos.get("id_hotel"),
+        "id_reserva": datos.get("id_reserva"),
+        "cliente": {"documento_cliente": datos.get("documento_cliente"), "nombre_cliente": datos.get("nombre_cliente", "")},
+        "calificacion": datos.get("calificacion"),
+        "texto": datos.get("texto").strip(),
+        "fecha": datetime.now().isoformat(),
+        "estado": "publicada",
+        "votos_utilidad": 0,
+        "votantes": [],
+        "destacada": False,
+        "respuesta_admin": None})
+    resultado = list(db.resenas.aggregate([{"$match": {"id_hotel": datos.get("id_hotel"), "estado": "publicada"}}, {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}]))
+    if resultado:
+        db.hoteles.update_one({"id_hotel": datos.get("id_hotel")}, {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}, upsert=True)
+    return {"mensaje": "Resena creada exitosamente"}
+
+@app.put("/resenas/editar/{id_resena}")
+def editar_resena(id_resena: int, datos: dict):
+    resena = db.resenas.find_one({"id_resena": id_resena, "cliente.documento_cliente": datos.get("documento_cliente"), "estado": "publicada"})
+    if not resena:
+        raise HTTPException(status_code=404, detail="Resena no encontrada o no pertenece al cliente")
+    if datos.get("calificacion") is not None and (datos.get("calificacion") < 1 or datos.get("calificacion") > 5):
+        raise HTTPException(status_code=400, detail="Calificacion debe ser entre 1 y 5")
+    if datos.get("texto") is not None and len(datos.get("texto").strip()) == 0:
+        raise HTTPException(status_code=400, detail="El texto no puede estar vacio")
+    db.resenas.update_one({"id_resena": id_resena}, {"$set": {"calificacion": datos.get("calificacion"), "texto": datos.get("texto")}})
+    resultado = list(db.resenas.aggregate([{"$match": {"id_hotel": resena["id_hotel"], "estado": "publicada"}}, {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}]))
+    if resultado:
+        db.hoteles.update_one({"id_hotel": resena["id_hotel"]}, {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}, upsert=True)
+    return {"mensaje": "Resena actualizada exitosamente"}
+
+@app.delete("/resenas/eliminar/{id_resena}")
+def eliminar_resena(id_resena: int, datos: dict):
+    resena = db.resenas.find_one({"id_resena": id_resena, "cliente.documento_cliente": datos.get("documento_cliente"), "estado": "publicada"})
+    if not resena:
+        raise HTTPException(status_code=404, detail="Resena no encontrada o no pertenece al cliente")
+    db.resenas.update_one({"id_resena": id_resena}, {"$set": {"estado": "eliminada"}})
+    resultado = list(db.resenas.aggregate([{"$match": {"id_hotel": resena["id_hotel"], "estado": "publicada"}}, {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}]))
+    if resultado:
+        db.hoteles.update_one({"id_hotel": resena["id_hotel"]}, {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}, upsert=True)
+    else:
+        db.hoteles.update_one({"id_hotel": resena["id_hotel"]}, {"$set": {"calificacion_promedio": 0, "cantidad_resenas": 0}})
+    return {"mensaje": "Resena eliminada exitosamente"}
+
+@app.get("/resenas/hotel/{id_hotel}")
+def get_resenas_hotel(id_hotel: str, orden: str = Query(default="fecha", enum=["fecha", "utilidad"]), pagina: int = Query(default=1, ge=1), por_pagina: int = Query(default=10, ge=1, le=50)):
+    campo = "fecha" if orden == "fecha" else "votos_utilidad"
+    resenas = list(db.resenas.find({"id_hotel": id_hotel, "estado": "publicada"}, {"_id": 0}).sort(campo, -1).skip((pagina - 1) * por_pagina).limit(por_pagina))
+    return {"total": db.resenas.count_documents({"id_hotel": id_hotel, "estado": "publicada"}), "pagina": pagina, "resenas": resenas}
+
+@app.post("/resenas/votar/{id_resena}")
+def votar_resena(id_resena: int, datos: dict):
+    resena = db.resenas.find_one({"id_resena": id_resena, "estado": "publicada"})
+    if not resena:
+        raise HTTPException(status_code=404, detail="Resena no encontrada")
+    if datos.get("documento_cliente") in resena.get("votantes", []):
+        raise HTTPException(status_code=409, detail="Ya votaste por esta resena")
+    if resena["cliente"]["documento_cliente"] == datos.get("documento_cliente"):
+        raise HTTPException(status_code=403, detail="No puedes votar tu propia resena")
+    db.resenas.update_one({"id_resena": id_resena}, {"$inc": {"votos_utilidad": 1}, "$push": {"votantes": datos.get("documento_cliente")}})
+    return {"mensaje": "Voto registrado exitosamente"}
+
+@app.get("/resenas_cliente/{documento_cliente}")
+def get_resenas_cliente(documento_cliente: str, orden: str = Query(default="fecha", enum=["fecha", "hotel"])):
+    campo = "fecha" if orden == "fecha" else "id_hotel"
+    resenas = list(db.resenas.find({"cliente.documento_cliente": documento_cliente}, {"_id": 0}).sort(campo, -1))
+    return [{"id_resena": r.get("id_resena"), "id_hotel": r.get("id_hotel"), "calificacion": r.get("calificacion"), "texto": r.get("texto"), "fecha": r.get("fecha"), "estado": r.get("estado"), "votos_utilidad": r.get("votos_utilidad", 0), "tiene_respuesta": r.get("respuesta_admin") is not None} for r in resenas]
 
 
 
