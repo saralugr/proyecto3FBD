@@ -61,6 +61,11 @@ def hotel_por_nombre(nombre_hotel: str):
     return hotel or {}
 
 
+from fastapi import FastAPI, HTTPException
+from datetime import datetime
+
+app = FastAPI()
+
 @app.get('/top_hoteles')
 def top_hoteles(fecha_inicio: str, fecha_fin: str):
     
@@ -80,6 +85,9 @@ def top_hoteles(fecha_inicio: str, fecha_fin: str):
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de fecha_fin inválido. Use YYYY-MM-DD o MM/DD/YYYY")
 
+    # Reemplazamos la hora del límite final a las 23:59:59 para incluir todo el día de cierre
+    fecha_final_dt = fecha_final_dt.replace(hour=23, minute=59, second=59)
+
     resenas = list(
         db.resenas.find({
             "fecha": {
@@ -96,7 +104,7 @@ def top_hoteles(fecha_inicio: str, fecha_fin: str):
         nombre_hotel = r.get("nombre_hotel", f"Hotel {id_hotel}")
         calificacion = r.get("calificacion", 0)
 
-        if not id_hotel:
+        if id_hotel is None:
             continue
 
         if id_hotel not in hoteles:
