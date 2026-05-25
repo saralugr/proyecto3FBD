@@ -290,12 +290,11 @@ def comparacion_ciudad(ciudad: str):
     )
 
     resultado = []
-
     suma_ciudad = 0
     cantidad_hoteles = 0
 
-    for hotel in hoteles_ciudad:
 
+    for hotel in hoteles_ciudad:
         id_hotel = hotel["id_hotel"]
 
         resenas = list(
@@ -310,34 +309,23 @@ def comparacion_ciudad(ciudad: str):
             promedio = 0
             porcentaje_respondidas = 0
             porcentaje_destacadas = 0
-
         else:
-
             suma = 0
             respondidas = 0
             destacadas = 0
 
             for r in resenas:
-
                 suma += r["calificacion"]
 
                 if r.get("respondida") == True:
                     respondidas += 1
 
-                if r["destacada"] == True:
+                if r.get("destacada") == True:
                     destacadas += 1
 
             promedio = round(suma / total, 2)
-
-            porcentaje_respondidas = round(
-                respondidas * 100 / total,
-                2
-            )
-
-            porcentaje_destacadas = round(
-                destacadas * 100 / total,
-                2
-            )
+            porcentaje_respondidas = round(respondidas * 100 / total, 2)
+            porcentaje_destacadas = round(destacadas * 100 / total, 2)
 
         resultado.append({
             "hotel": hotel["nombre_hotel"],
@@ -350,13 +338,13 @@ def comparacion_ciudad(ciudad: str):
         suma_ciudad += promedio
         cantidad_hoteles += 1
 
-    promedio_ciudad = round(
-        suma_ciudad / cantidad_hoteles,
-        2
-    )
+    if cantidad_hoteles == 0:
+        promedio_ciudad = 0
+    else:
+        promedio_ciudad = round(suma_ciudad / cantidad_hoteles, 2)
 
+    # 4. Marcar qué hoteles están por debajo del promedio de la ciudad
     for r in resultado:
-
         r["debajo_promedio_ciudad"] = (
             r["calificacion_promedio"] < promedio_ciudad
         )
@@ -365,7 +353,6 @@ def comparacion_ciudad(ciudad: str):
         "promedio_ciudad": promedio_ciudad,
         "hoteles": resultado
     }
-
 
 @app.post("/resenas/crear")
 def crear_resena(datos: dict):
