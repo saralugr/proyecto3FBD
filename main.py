@@ -60,23 +60,29 @@ def hotel_por_nombre(nombre_hotel: str):
 
 
 @app.get('/top_hoteles')
-def top_hoteles(fecha_inicio: str, fecha_final: str):
+def top_hoteles(fecha_inicio: str, fecha_fin: str):
+    
+    try:
+        fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+    except ValueError:
+        try:
+            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%m/%d/%Y")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha_inicio inválido. Use YYYY-MM-DD o MM/DD/YYYY")
 
-    fecha_inicio = datetime.strptime(
-        fecha_inicio,
-        "%Y-%m-%d"
-    )
-
-    fecha_final = datetime.strptime(
-        fecha_final,
-        "%Y-%m-%d"
-    )
+    try:
+        fecha_final_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+    except ValueError:
+        try:
+            fecha_final_dt = datetime.strptime(fecha_fin, "%m/%d/%Y")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha_fin inválido. Use YYYY-MM-DD o MM/DD/YYYY")
 
     resenas = list(
         db.resenas.find({
             "fecha": {
-                "$gte": fecha_inicio,
-                "$lte": fecha_final
+                "$gte": fecha_inicio_dt,
+                "$lte": fecha_final_dt
             }
         })
     )
@@ -84,13 +90,14 @@ def top_hoteles(fecha_inicio: str, fecha_final: str):
     hoteles = {}
 
     for r in resenas:
+        id_hotel = r.get("id_hotel")
+        nombre_hotel = r.get("nombre_hotel", f"Hotel {id_hotel}")
+        calificacion = r.get("calificacion", 0)
 
-        id_hotel = r["id_hotel"]
-        nombre_hotel = r["nombre_hotel"]
-        calificacion = r["calificacion"]
+        if not id_hotel:
+            continue
 
         if id_hotel not in hoteles:
-
             hoteles[id_hotel] = {
                 "nombre_hotel": nombre_hotel,
                 "suma": 0,
@@ -103,17 +110,17 @@ def top_hoteles(fecha_inicio: str, fecha_final: str):
     resultado = []
 
     for id_hotel in hoteles:
-
+        if hoteles[id_hotel]["cantidad"] == 0:
+            continue
+            
         promedio = round(
-            hoteles[id_hotel]["suma"] /
-            hoteles[id_hotel]["cantidad"],
+            hoteles[id_hotel]["suma"] / hoteles[id_hotel]["cantidad"],
             2
         )
 
         resultado.append({
             "id_hotel": id_hotel,
-            "nombre_hotel":
-                hoteles[id_hotel]["nombre_hotel"],
+            "nombre_hotel": hoteles[id_hotel]["nombre_hotel"],
             "calificacion_promedio": promedio
         })
 
@@ -123,7 +130,6 @@ def top_hoteles(fecha_inicio: str, fecha_final: str):
     )
 
     return resultado[:10]
-
 
 @app.post('hoteles/anadir_hotel')
 def anadir_hotel(datos:dict):
