@@ -234,7 +234,6 @@ def comparacion_ciudad(ciudad: str):
 
 @app.post("/resenas/crear")
 def crear_resena(datos: dict):
-
     if not all([datos.get("id_reserva"), datos.get("documento_cliente"), datos.get("id_hotel"), datos.get("calificacion"), datos.get("descripcion")]):
         raise HTTPException(status_code=400, detail="Faltan campos obligatorios")
     if datos.get("calificacion") < 1 or datos.get("calificacion") > 5:
@@ -243,14 +242,11 @@ def crear_resena(datos: dict):
         raise HTTPException(status_code=400, detail="La descripcion no puede estar vacia")
     if db.resenas.find_one({"id_reserva": datos.get("id_reserva"), "cliente.documento_cliente": datos.get("documento_cliente")}):
         raise HTTPException(status_code=409, detail="Ya existe una resena para esta reserva")
-    
     ultima = db.resenas.find_one({}, sort=[("id_resena", -1)])
-
     nuevo_id = str((int(ultima["id_resena"]) + 1) if ultima and "id_resena" in ultima else 1)
-
     db.resenas.insert_one({
         "id_resena": nuevo_id,
-        "id_hotel": int(datos.get("id_hotel")),
+        "id_hotel": datos.get("id_hotel"),
         "nombre_hotel": datos.get("nombre_hotel", ""),
         "id_reserva": int(datos.get("id_reserva")),
         "cliente": {"documento_cliente": datos.get("documento_cliente"), "nombre_cliente": datos.get("nombre_cliente", "")},
@@ -263,11 +259,9 @@ def crear_resena(datos: dict):
         "votantes": [],
         "respuesta_admin": {"respondida": False, "texto": ""}
     })
-
-    resultado = list(db.resenas.aggregate([{"$match": {"id_hotel": int(datos.get("id_hotel")), "estado": "publicada"}}, {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}]))
-    
+    resultado = list(db.resenas.aggregate([{"$match": {"id_hotel": datos.get("id_hotel"), "estado": "publicada"}}, {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}]))
     if resultado:
-        db.hoteles.update_one({"id_hotel": int(datos.get("id_hotel"))}, {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}, upsert=True)
+        db.hoteles.update_one({"nombre_hotel": datos.get("nombre_hotel")}, {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}})
     return {"mensaje": "Resena creada exitosamente"}
 
 
@@ -313,7 +307,7 @@ def eliminar_resena(id_resena: str, datos: dict):
 
 
 @app.get("/resenas/hotel/{id_hotel}")
-def get_resenas_hotel(id_hotel: int, orden: str = Query(default="fecha", enum=["fecha", "utilidad"]), pagina: int = Query(default=1, ge=1), por_pagina: int = Query(default=10, ge=1, le=50)):
+def get_resenas_hotel(id_hotel: str, orden: str = Query(default="fecha", enum=["fecha", "utilidad"]), pagina: int = Query(default=1, ge=1), por_pagina: int = Query(default=10, ge=1, le=50)):
     campo = "fecha" if orden == "fecha" else "votos_utilidad"
     resenas = list(db.resenas.find({"id_hotel": id_hotel, "estado": "publicada"}, {"_id": 0}).sort(campo, -1).skip((pagina - 1) * por_pagina).limit(por_pagina))
     for r in resenas:
