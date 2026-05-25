@@ -12,11 +12,12 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://iacademy2.oracle.com", "https://apex.oracle.com", "*"],
+    allow_credentials=False,
     allow_methods=["*"],
-    allow_credentials = True,
     allow_headers=["*"]
 )
+
 
 #os.environ #para despliegue. #Descomente cuando ya probó todo local.
 client = MongoClient(os.environ["MONGO_URI"])
