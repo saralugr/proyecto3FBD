@@ -292,28 +292,29 @@ def editar_resena(id_resena: str, datos: dict):
 
 
 @app.delete("/resenas/eliminar/{id_resena}")
-def eliminar_resena(id_resena: str, datos: dict):
-    resena = db.resenas.find_one({"id_resena": id_resena, "cliente.documento_cliente": datos.get("documento_cliente"), "estado": "publicada"})
+def eliminar_resena(id_resena: str, documento_cliente: str = Query(...)):
+    resena = db.resenas.find_one({"id_resena": id_resena, "cliente.documento_cliente": documento_cliente, "estado": "publicada"})
     if not resena:
         raise HTTPException(status_code=404, detail="Resena no encontrada o no pertenece al cliente")
     db.resenas.update_one({"id_resena": id_resena}, {"$set": {"estado": "eliminada"}})
     resultado = list(db.resenas.aggregate([{"$match": {"id_hotel": resena["id_hotel"], "estado": "publicada"}}, {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}]))
     if resultado:
-        db.hoteles.update_one({"id_hotel": resena["id_hotel"]}, {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}, upsert=True)
+        db.hoteles.update_one({"id_hotel": resena["id_hotel"]}, {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}})
     else:
         db.hoteles.update_one({"id_hotel": resena["id_hotel"]}, {"$set": {"calificacion_promedio": 0, "cantidad_resenas": 0}})
     return {"mensaje": "Resena eliminada exitosamente"}
 
 
-@app.get("/resenas/hotel/{id_hotel}")
-def get_resenas_hotel(id_hotel: str, orden: str = Query(default="fecha", enum=["fecha", "utilidad"]), pagina: int = Query(default=1, ge=1), por_pagina: int = Query(default=10, ge=1, le=50)):
+@app.get("/resenas/hotel/{nombre_hotel}")
+def get_resenas_hotel(nombre_hotel: str, orden: str = Query(default="fecha", enum=["fecha", "utilidad"]), pagina: int = Query(default=1, ge=1), por_pagina: int = Query(default=10, ge=1, le=50)):
     campo = "fecha" if orden == "fecha" else "votos_utilidad"
-    resenas = list(db.resenas.find({"id_hotel": id_hotel, "estado": "publicada"}, {"_id": 0}).sort(campo, -1).skip((pagina - 1) * por_pagina).limit(por_pagina))
+    filtro = {"nombre_hotel": nombre_hotel, "estado": "publicada"}
+    resenas = list(db.resenas.find(filtro, {"_id": 0}).sort(campo, -1).skip((pagina - 1) * por_pagina).limit(por_pagina))
     for r in resenas:
         if "fecha" in r and hasattr(r["fecha"], "isoformat"):
             r["fecha"] = r["fecha"].isoformat()
-    return {"total": db.resenas.count_documents({"id_hotel": id_hotel, "estado": "publicada"}), "pagina": pagina, "resenas": resenas}
-
+    total = db.resenas.count_documents(filtro)
+    return {"total": total, "pagina": pagina, "resenas": resenas}
 
 @app.post("/resenas/votar/{id_resena}")
 def votar_resena(id_resena: str, datos: dict):
@@ -330,7 +331,7 @@ def votar_resena(id_resena: str, datos: dict):
 
 @app.get("/resenas_cliente/{documento_cliente}")
 def get_resenas_cliente(documento_cliente: str, orden: str = Query(default="fecha", enum=["fecha", "hotel"])):
-    campo = "fecha" if orden == "fecha" else "id_hotel"
+    campo = "fecha" if orden == "fecha" else "nombre_hotel"
     resenas = list(db.resenas.find({"cliente.documento_cliente": documento_cliente}, {"_id": 0}).sort(campo, -1))
     resultado = []
     for r in resenas:
