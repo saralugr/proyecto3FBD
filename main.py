@@ -361,81 +361,78 @@ def get_resenas_cliente(documento_cliente: str, orden: str = Query(default="fech
 @app.put("/admin/resenas/responder/{id_resena}")
 def responder_resena(id_resena: str, datos: dict):
     texto_respuesta = datos.get("texto", "").strip()
-    
     if not texto_respuesta:
         raise HTTPException(status_code=400, detail="El texto de la respuesta no puede estar vacío")
         
-    resena = db.resenas.find_one({"id_resena": id_resena, "estado": "publicada"})
+    # Búsqueda todoterreno: intenta por String y por Int
+    filtro = {"$or": [{"id_resena": id_resena}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
+    resena = db.resenas.find_one(filtro)
+    
     if not resena:
-        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya se encuentra eliminada")
+        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya eliminada")
         
     db.resenas.update_one(
-        {"id_resena": id_resena},
-        {
-            "$set": {
-                "respuesta_admin": {
-                    "respondida": True,
-                    "texto": texto_respuesta
-                }
-            }
-        }
+        {"_id": resena["_id"]},
+        {"$set": {"respuesta_admin": {"respondida": True, "texto": texto_respuesta}}}
     )
-    return {"mensaje": "Respuesta del administrador guardada exitosamente"}
+    return {"mensaje": "Respuesta guardada exitosamente"}
 
 
 @app.delete("/admin/resenas/moderar/{id_resena}")
 def moderar_resena(id_resena: str, razon: str = Query(...)):
-    resena = db.resenas.find_one({"id_resena": id_resena, "estado": "publicada"})
-    if not resena:
-        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya procesada")
-        
-    db.resenas.update_one(
-        {"id_resena": id_resena},
-        {
-            "$set": {
-                "estado": "eliminada"
-            }
-        }
-    )
-
-    id_hotel = resena["id_hotel"]
-    resultado = list(db.resenas.aggregate([
-        {"$match": {"id_hotel": id_hotel, "estado": "publicada"}},
-        {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}
-    ]))
+    filtro = {"$or": [{"id_resena": id_resena}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
+    resena = db.resenas.find_one(filtro)
     
-    if resultado:
-        db.hoteles.update_one(
-            {"id_hotel": id_hotel},
-            {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}
-        )
-    else:
-        db.hoteles.update_one(
-            {"id_hotel": id_hotel},
-            {"$set": {"calificacion_promedio": 0, "cantidad_resenas": 0}}
-        )
+    if not resena:
+        raise HTTPException(status_code=404, detail="Reseña no encontrada")
         
-    return {"mensaje": "Reseña eliminada por infracción a las políticas"}
+    
+    db.resenas.update_one({"_id": resena["_id"]}, {"$set": {"estado": "eliminada"}})
+
+    # Recalcular promedio del hotel de forma segura
+    id_hotel = resena.get("id_hotel")
+    if id_hotel is not None:
+        resultado = list(db.resenas.aggregate([
+            {"$match": {"id_hotel": id_hotel, "estado": "publicada"}},
+            {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}
+        ]))
+        if resultado:
+            db.hoteles.update_one(
+                {"id_hotel": id_hotel},
+                {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}
+            )
+        else:
+            db.hoteles.update_one(
+                {"id_hotel": id_hotel},
+                {"$set": {"calificacion_promedio": 0, "cantidad_resenas": 0}}
+            )
+        
+    return {"mensaje": "Reseña moderada y eliminada exitosamente"}
 
 
 @app.put("/admin/resenas/destacar/{id_resena}")
-def destacar_resena(id_resena: str):
-    resena = db.resenas.find_one({"id_resena": id_resena, "estado": "publicada"})
-    if not resena:
-        raise HTTPException(status_code=404, detail="Reseña no encontrada o no está activa")
-        
-    id_hotel = resena["id_hotel"]
+def poner_resena_destacada(id_resena: str):
+    filtro = {"$or": [{"id_resena": id_resena}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
+    resena = db.resenas.find_one(filtro)
     
-
+    if not resena:
+        raise HTTPException(status_code=404, detail="Reseña no encontrada")
+        
+    id_hotel = resena.get("id_hotel")
+    
+    
     db.resenas.update_many(
         {"id_hotel": id_hotel, "destacada": True},
         {"$set": {"destacada": False}}
     )
     
-
+    
     db.resenas.update_one(
-        {"id_resena": id_resena},
+        {"_id": resena["_id"]},
         {"$set": {"destacada": True}}
     )
     
-    return {"mensaje": f"La reseña {id_resena} ha sido fijada como destacada"}
+    return {"mensaje": "Reseña fijada como destacada"}
+
+
+
