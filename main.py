@@ -357,3 +357,89 @@ def get_resenas_cliente(documento_cliente: str, orden: str = Query(default="fech
             "destacada": r.get("destacada", False)
         })
     return resultado
+
+@app.put("/admin/resenas/responder/{id_resena}")
+def responder_resena(id_resena: str, datos: dict):
+    texto_respuesta = datos.get("texto", "").strip()
+    
+    if not texto_respuesta:
+        raise HTTPException(status_code=400, detail="El texto de la respuesta no puede estar vacío")
+        
+    resena = db.resenas.find_one({"id_resena": id_resena, "estado": "publicada"})
+    if not resena:
+        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya se encuentra eliminada")
+        
+    db.resenas.update_one(
+        {"id_resena": id_resena},
+        {
+            "$set": {
+                "respuesta_admin": {
+                    "respondida": True,
+                    "texto": texto_respuesta,
+                    "fecha_respuesta": datetime.now()
+                }
+            }
+        }
+    )
+    return {"mensaje": "Respuesta del administrador guardada exitosamente"}
+
+
+@app.delete("/admin/resenas/moderar/{id_resena}")
+def moderar_resena(id_resena: str, razon: str = Query(...)):
+    resena = db.resenas.find_one({"id_resena": id_resena, "estado": "publicada"})
+    if not resena:
+        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya procesada")
+        
+
+    db.resenas.update_one(
+        {"id_resena": id_resena},
+        {
+            "$set": {
+                "estado": "eliminada",
+                "moderada_por_admin": True,
+                "razon_eliminacion": razon,
+                "fecha_moderacion": datetime.now()
+            }
+        }
+    )
+    
+
+    id_hotel = resena["id_hotel"]
+    resultado = list(db.resenas.aggregate([
+        {"$match": {"id_hotel": id_hotel, "estado": "publicada"}},
+        {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}
+    ]))
+    
+    if resultado:
+        db.hoteles.update_one(
+            {"id_hotel": id_hotel},
+            {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}
+        )
+    else:
+        db.hoteles.update_one(
+            {"id_hotel": id_hotel},
+            {"$set": {"calificacion_promedio": 0, "cantidad_resenas": 0}}
+        )
+        
+    return {"mensaje": "Reseña eliminada por infracción a las políticas de convivencia digital"}
+
+
+@app.put("/admin/resenas/destacar/{id_resena}")
+def destacar_resena(id_resena: str):
+    resena = db.resenas.find_one({"id_resena": id_resena, "estado": "publicada"})
+    if not resena:
+        raise HTTPException(status_code=404, detail="Reseña no encontrada o no está activa")
+        
+    id_hotel = resena["id_hotel"]
+    
+    db.resenas.update_many(
+        {"id_hotel": id_hotel, "destacada": True},
+        {"$set": {"destacada": False}}
+    )
+    
+    db.resenas.update_one(
+        {"id_resena": id_resena},
+        {"$set": {"destacada": True}}
+    )
+    
+    return {"mensaje": f"La reseña {id_resena} ha sido fijada como destacada para el hotel {id_hotel}"}
