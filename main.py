@@ -241,8 +241,14 @@ def crear_resena(datos: dict):
         raise HTTPException(status_code=400, detail="La descripcion no puede estar vacia")
     if db.resenas.find_one({"id_reserva": datos.get("id_reserva"), "cliente.documento_cliente": datos.get("documento_cliente")}):
         raise HTTPException(status_code=409, detail="Ya existe una resena para esta reserva")
-    ultima = db.resenas.find_one({}, sort=[("id_resena", -1)])
-    nuevo_id = str((int(ultima["id_resena"]) + 1) if ultima and "id_resena" in ultima else 1)
+    todas = list(db.resenas.find({}, {"id_resena": 1}))
+    ids_numericos = []
+    for r in todas:
+        try:
+            ids_numericos.append(int(r["id_resena"]))
+        except:
+            pass
+    nuevo_id = str(max(ids_numericos) + 1) if ids_numericos else "1"
     db.resenas.insert_one({
         "id_resena": nuevo_id,
         "id_hotel": datos.get("id_hotel"),
