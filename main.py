@@ -239,7 +239,7 @@ def crear_resena(datos: dict):
         raise HTTPException(status_code=400, detail="Calificacion debe ser entre 1 y 5")
     if not isinstance(datos.get("descripcion"), str) or len(datos.get("descripcion").strip()) == 0:
         raise HTTPException(status_code=400, detail="La descripcion no puede estar vacia")
-    if db.resenas.find_one({"id_reserva": datos.get("id_reserva"), "cliente.documento_cliente": datos.get("documento_cliente")}):
+    if db.resenas.find_one({"id_reserva": datos.get("id_reserva"), "cliente.documento_cliente": datos.get("documento_cliente"), "estado": "publicada"}):
         raise HTTPException(status_code=409, detail="Ya existe una resena para esta reserva")
     todas = list(db.resenas.find({}, {"id_resena": 1}))
     ids_numericos = []
