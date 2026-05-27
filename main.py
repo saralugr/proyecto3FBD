@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pymongo import MongoClient
 from datetime import datetime
+from bson import ObjectId
 import os
 
 app = FastAPI()
@@ -358,81 +359,160 @@ def get_resenas_cliente(documento_cliente: str, orden: str = Query(default="fech
         })
     return resultado
 
+
+@app.post("/resenas/crear")
+def crear_resena(datos: dict):
+    if not all([datos.get("id_reserva"), datos.get("documento_cliente"), datos.get("id_hotel"), datos.get("calificacion"), datos.get("descripcion")]):
+        raise HTTPException(status_code=400, detail="Faltan campos obligatorios")
+        
+    if datos.get("calificacion") < 1 or datos.get("calificacion") > 5:
+        raise HTTPException(status_code=400, detail="Calificacion debe ser entre 1 y 5")
+        
+    if not isinstance(datos.get("descripcion"), str) or len(datos.get("descripcion").strip()) == 0:
+        raise HTTPException(status_code=400, detail="La descripcion no puede estar vacia")
+        
+
+    doc_cliente_str = str(datos.get("documento_cliente")).strip()
+    
+    if db.resenas.find_one({"id_reserva": int(datos.get("id_reserva")), "cliente.documento_cliente": doc_cliente_str, "estado": "publicada"}):
+        raise HTTPException(status_code=409, detail="Ya existe una resena para esta reserva")
+        
+    todas = list(db.resenas.find({}, {"id_resena": 1}))
+    ids_numericos = []
+    for r in todas:
+        try:
+            ids_numericos.append(int(r["id_resena"]))
+        except:
+            pass
+    nuevo_id = str(max(ids_numericos) + 1) if ids_numericos else "1"
+    
+    nuevo_documento = {
+        "id_resena": nuevo_id,
+        "id_hotel": int(datos.get("id_hotel")),
+        "nombre_hotel": str(datos.get("nombre_hotel", "")),
+        "id_reserva": int(datos.get("id_reserva")),
+        "cliente": {
+            "documento_cliente": doc_cliente_str,
+            "nombre_cliente": str(datos.get("nombre_cliente", ""))
+        },
+        "calificacion": float(datos.get("calificacion")),
+        "descripcion": datos.get("descripcion").strip(),
+        "fecha": datetime.now().isoformat(), # Se guarda como String compatible con tu esquema
+        "estado": "publicada",
+        "destacada": False,
+        "votos_utilidad": 0,
+        "votantes": [],
+        "respuesta_admin": {"respondida": False, "texto": ""}
+    }
+    
+    db.resenas.insert_one(nuevo_documento)
+    
+    # Recalcular promedio del hotel
+    resultado = list(db.resenas.aggregate([
+        {"$match": {"id_hotel": int(datos.get("id_hotel")), "estado": "publicada"}},
+        {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}
+    ]))
+    if resultado:
+        db.hoteles.update_one(
+            {"id_hotel": int(datos.get("id_hotel"))},
+            {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}
+        )
+        
+    return {"mensaje": "Resena creada exitosamente"}
+
+
 @app.put("/admin/resenas/responder/{id_resena}")
 def responder_resena(id_resena: str, datos: dict):
     texto_respuesta = datos.get("texto", "").strip()
     if not texto_respuesta:
         raise HTTPException(status_code=400, detail="El texto de la respuesta no puede estar vacío")
         
-    # Búsqueda todoterreno: intenta por String y por Int
-    filtro = {"$or": [{"id_resena": id_resena}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
+
+    filtro = {"$or": [{"id_resena": str(id_resena)}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
     resena = db.resenas.find_one(filtro)
     
     if not resena:
-        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya eliminada")
+        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya se encuentra eliminada")
         
+
     db.resenas.update_one(
         {"_id": resena["_id"]},
-        {"$set": {"respuesta_admin": {"respondida": True, "texto": texto_respuesta}}}
+        {
+            "$set": {
+                "respuesta_admin": {
+                    "respondida": True,
+                    "texto": texto_respuesta
+                }
+            }
+        }
     )
-    return {"mensaje": "Respuesta guardada exitosamente"}
+    return {"mensaje": "Respuesta del administrador guardada exitosamente"}
 
 
 @app.delete("/admin/resenas/moderar/{id_resena}")
-def moderar_resena(id_resena: str, razon: str = Query(...)):
-    filtro = {"$or": [{"id_resena": id_resena}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
+def moderar_resena(id_resena: str, razon: str = Query(default="Infraccion")):
+    filtro = {"$or": [{"id_resena": str(id_resena)}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
     resena = db.resenas.find_one(filtro)
     
     if not resena:
-        raise HTTPException(status_code=404, detail="Reseña no encontrada")
+        raise HTTPException(status_code=404, detail="Reseña no encontrada o ya procesada")
         
-    
+   
     db.resenas.update_one({"_id": resena["_id"]}, {"$set": {"estado": "eliminada"}})
 
-    # Recalcular promedio del hotel de forma segura
     id_hotel = resena.get("id_hotel")
     if id_hotel is not None:
         resultado = list(db.resenas.aggregate([
-            {"$match": {"id_hotel": id_hotel, "estado": "publicada"}},
+            {"$match": {"id_hotel": int(id_hotel), "estado": "publicada"}},
             {"$group": {"_id": "$id_hotel", "promedio": {"$avg": "$calificacion"}, "cantidad": {"$sum": 1}}}
         ]))
+        
         if resultado:
             db.hoteles.update_one(
-                {"id_hotel": id_hotel},
+                {"id_hotel": int(id_hotel)},
                 {"$set": {"calificacion_promedio": round(resultado[0]["promedio"], 2), "cantidad_resenas": resultado[0]["cantidad"]}}
             )
         else:
             db.hoteles.update_one(
-                {"id_hotel": id_hotel},
+                {"id_hotel": int(id_hotel)},
                 {"$set": {"calificacion_promedio": 0, "cantidad_resenas": 0}}
             )
         
-    return {"mensaje": "Reseña moderada y eliminada exitosamente"}
+    return {"mensaje": "Reseña eliminada por infracción a las políticas de convivencia digital"}
 
 
 @app.put("/admin/resenas/destacar/{id_resena}")
-def poner_resena_destacada(id_resena: str):
-    filtro = {"$or": [{"id_resena": id_resena}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
+def destacar_resena(id_resena: str):
+    filtro = {"$or": [{"id_resena": str(id_resena)}, {"id_resena": int(id_resena) if id_resena.isdigit() else None}], "estado": "publicada"}
     resena = db.resenas.find_one(filtro)
     
     if not resena:
-        raise HTTPException(status_code=404, detail="Reseña no encontrada")
+        raise HTTPException(status_code=404, detail="Reseña no encontrada o no está activa")
         
-    id_hotel = resena.get("id_hotel")
+    id_hotel = int(resena["id_hotel"])
     
     
-    db.resenas.update_many(
-        {"id_hotel": id_hotel, "destacada": True},
-        {"$set": {"destacada": False}}
-    )
+    try:
+        db.resenas.update_many(
+            {"id_hotel": id_hotel, "destacada": True},
+            {"$set": {"destacada": False}}
+        )
+    except Exception as e:
+        print("Aviso: Al bachear las destacadas ocurrió una validación, procediendo individualmente:", e)
+     
+        resenas_hotel = db.resenas.find({"id_hotel": id_hotel, "destacada": True})
+        for r in resenas_hotel:
+            try:
+                db.resenas.update_one({"_id": r["_id"]}, {"$set": {"destacada": False}})
+            except:
+                pass
     
-    
+
     db.resenas.update_one(
         {"_id": resena["_id"]},
         {"$set": {"destacada": True}}
     )
     
-    return {"mensaje": "Reseña fijada como destacada"}
-
+    return {"mensaje": f"La reseña {id_resena} ha sido fijada como destacada"}
 
 
